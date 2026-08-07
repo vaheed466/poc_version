@@ -1,0 +1,75 @@
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+  issues: write
+  pull-requests: write
+
+name: release-please
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
+    steps:
+      - id: rp
+        uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ env.GH_TOKEN }}
+          target-branch: main
+          skip-github-pull-request: false
+          skip-github-release: false
+          release-type: simple
+
+      - name: Debug outputs
+        run: |
+          echo "releases_created=${{ steps.rp.outputs.releases_created }}"
+          echo "paths_released=${{ steps.rp.outputs.paths_released }}"
+          echo "tag_name=${{ steps.rp.outputs.tag_name }}"
+          echo "release_created=${{ steps.rp.outputs.release_created }}"
+
+      - name: Update APP_VERSION and LAST_RELEASE_DATE in dev and uat
+        if: ${{ steps.rp.outputs.tag_name != '' }}
+        env:
+          REPOSITORY: ${{ github.repository }}
+          TAG_NAME: ${{ steps.rp.outputs.tag_name }}
+        run: |
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "Missing secret REPO_ADMIN_TOKEN. Add a PAT with permission to manage repository environment variables."
+            exit 1
+          fi
+
+          RUN_DATE="$(date +%d-%m-%Y)"
+          echo "Updating APP_VERSION and LAST_RELEASE_DATE in dev and uat"
+          for env_name in dev uat; do
+            if ! gh api \
+              --method PATCH \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/${REPOSITORY}/environments/${env_name}/variables/APP_VERSION" \
+              -f name='APP_VERSION' \
+              -f value="${TAG_NAME}"; then
+              gh api \
+                --method POST \
+                -H "Accept: application/vnd.github+json" \
+                "/repos/${REPOSITORY}/environments/${env_name}/variables" \
+                -f name='APP_VERSION' \
+                -f value="${TAG_NAME}"
+            fi
+
+            if ! gh api \
+              --method PATCH \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/${REPOSITORY}/environments/${env_name}/variables/LAST_RELEASE_DATE" \
+              -f name='LAST_RELEASE_DATE' \
+              -f value="${RUN_DATE}"; then
+              gh api \
+                --method POST \
+                -H "Accept: application/vnd.github+json" \
+                "/repos/${REPOSITORY}/environments/${env_name}/variables" \
+                -f name='LAST_RELEASE_DATE' \
+                -f value="${RUN_DATE}"
+            fi
+          done
