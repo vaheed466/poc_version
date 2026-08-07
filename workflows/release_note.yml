@@ -22,7 +22,8 @@ jobs:
           target-branch: main
           skip-github-pull-request: false
           skip-github-release: false
-          release-type: simple
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
 
       - name: Debug outputs
         run: |
