@@ -29,6 +29,10 @@ test_single_release_02
 test_single_release_03
 test_single_release_feat_04
 test_single_release_fix_04
+test_single_release_fix_05
+test_single_release_fix_06
+
+
 
 
 
