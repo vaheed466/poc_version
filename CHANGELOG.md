@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.3.0](https://github.com/vaheed466/poc_version/compare/v4.2.0...v4.3.0) (2026-08-08)
+
+
+### Features
+
+* Add test_single_release_03 to requirements.txt ([7abbeda](https://github.com/vaheed466/poc_version/commit/7abbeda71064f26c63afd2c4cc6cf3b7420c0d95))
+
 ## [4.2.0](https://github.com/vaheed466/poc_version/compare/v4.1.1...v4.2.0) (2026-08-08)
 
 
