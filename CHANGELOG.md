@@ -1,5 +1,18 @@
 # Changelog
 
+## [4.1.0](https://github.com/vaheed466/poc_version/compare/v4.0.0...v4.1.0) (2026-08-08)
+
+
+### Features
+
+* Add test_manual_relase-start-again-04 to requirements.txt ([5349ec6](https://github.com/vaheed466/poc_version/commit/5349ec6fc18c34e45a7408ca7370fbfe544da135))
+
+
+### Continuous Integration
+
+* Add test_manual_relase_ci_01 to requirements.txt ([63ebe72](https://github.com/vaheed466/poc_version/commit/63ebe722f07e0482c82536028ea32d0685c921b1))
+* update release-please configuration to include changelog sections ([24c24e6](https://github.com/vaheed466/poc_version/commit/24c24e6808537139bf25dbce3d05a50f89e3b4dd))
+
 ## [4.0.0](https://github.com/vaheed466/poc_version/compare/v3.1.0...v4.0.0) (2026-08-07)
 
 
