@@ -22,3 +22,7 @@ test_manual_relase-06
 test_manual_relase-start-again
 test_manual_relase-start-again-02
 test_manual_relase-start-again-03
+test_manual_relase_ci_01
+test_manual_relase-start-again-04
+test_manual_relase_ci_02
+
