@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.5.0](https://github.com/vaheed466/poc_version/compare/v4.4.0...v4.5.0) (2026-08-08)
+
+
+### Features
+
+* Add test_single_release_fix_05 and test_single_release_fix_06 to requirements.txt ([370256c](https://github.com/vaheed466/poc_version/commit/370256c92f529a8096129d7ba8a377a36b63847f))
+
 ## [4.4.0](https://github.com/vaheed466/poc_version/compare/v4.3.0...v4.4.0) (2026-08-08)
 
 
