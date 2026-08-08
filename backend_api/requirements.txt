@@ -27,5 +27,7 @@ test_manual_relase-start-again-04
 test_manual_relase_ci_02
 test_single_release_02
 test_single_release_03
+test_single_release_feat_04
+
 
 
