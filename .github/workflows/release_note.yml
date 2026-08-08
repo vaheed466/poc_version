@@ -19,8 +19,10 @@ jobs:
     steps:
 
       # ============================================================
-      # STEP 1: Run Release Please
-      # This creates the Release PR if one is required.
+      # STEP 1
+      # Run Release Please.
+      #
+      # This creates/updates the Release Please PR.
       # ============================================================
       - name: Run Release Please - Create Release PR
         id: rp_pr
@@ -34,7 +36,8 @@ jobs:
           manifest-file: .release-please-manifest.json
 
       # ============================================================
-      # STEP 2: Debug Release Please outputs
+      # STEP 2
+      # Debug Release Please outputs
       # ============================================================
       - name: Debug Release Please outputs
         run: |
@@ -49,50 +52,168 @@ jobs:
           echo "========================================"
 
       # ============================================================
-      # STEP 3: Find the Release Please PR
+      # STEP 3
+      # Wait for GitHub to make the newly created Release Please PR
+      # and its labels visible through the API.
+      # ============================================================
+      - name: Wait for Release Please PR synchronization
+        if: ${{ steps.rp_pr.outputs.prs_created == 'true' }}
+        run: |
+          echo "Release Please reported that a PR was created."
+          echo "Waiting 30 seconds for GitHub API synchronization..."
+          sleep 30
+
+      # ============================================================
+      # STEP 4
+      # Find ONLY the Release Please PR.
       #
-      # Release Please marks its release PR with:
-      # autorelease: pending
+      # IMPORTANT:
       #
-      # We search for an OPEN PR with this label.
+      # We intentionally DO NOT search for generic:
+      #   - title containing "release"
+      #   - branch containing "release"
+      #
+      # We require:
+      #
+      #   1. PR is OPEN
+      #   2. PR targets main
+      #   3. PR has "autorelease: pending" label
+      #   4. PR head branch starts with "release-please"
+      #
+      # If these conditions are not met, NOTHING is merged.
       # ============================================================
       - name: Find Release Please PR
         id: find_pr
+        if: ${{ steps.rp_pr.outputs.prs_created == 'true' }}
         run: |
           set -e
 
-          echo "Searching for Release Please PR..."
+          echo "========================================"
+          echo "Searching ONLY for Release Please PR"
+          echo "========================================"
 
-          PR_NUMBER=$(gh pr list \
+          PR_NUMBER=""
+
+          MAX_ATTEMPTS=24
+          ATTEMPT=1
+
+          while [ "${ATTEMPT}" -le "${MAX_ATTEMPTS}" ]; do
+
+            echo ""
+            echo "Attempt ${ATTEMPT}/${MAX_ATTEMPTS}"
+            echo "Checking GitHub..."
+
+            # --------------------------------------------------------
+            # Get OPEN PRs targeting main with the official
+            # Release Please label.
+            # --------------------------------------------------------
+            RELEASE_PRS=$(gh pr list \
+              --repo "${GITHUB_REPOSITORY}" \
+              --base main \
+              --state open \
+              --label "autorelease: pending" \
+              --json number,title,headRefName,baseRefName,labels \
+              --jq '
+                .[]
+                | select(.baseRefName == "main")
+                | select(.headRefName | startswith("release-please"))
+                | .number
+              ')
+
+            if [ -n "${RELEASE_PRS}" ]; then
+
+              # Take the first matching Release Please PR.
+              PR_NUMBER=$(echo "${RELEASE_PRS}" | head -n 1)
+
+              echo ""
+              echo "========================================"
+              echo "Release Please PR FOUND"
+              echo "PR Number: ${PR_NUMBER}"
+              echo "========================================"
+
+              # ------------------------------------------------------
+              # Extra verification.
+              #
+              # Before merging, retrieve complete PR information and
+              # verify that it really has the Release Please label.
+              # ------------------------------------------------------
+
+              PR_INFO=$(gh pr view "${PR_NUMBER}" \
+                --repo "${GITHUB_REPOSITORY}" \
+                --json number,title,headRefName,baseRefName,state,labels)
+
+              echo ""
+              echo "Release Please PR details:"
+              echo "${PR_INFO}"
+
+              IS_VALID=$(echo "${PR_INFO}" | jq -r '
+                (
+                  .state == "OPEN"
+                  and
+                  .baseRefName == "main"
+                  and
+                  (.headRefName | startswith("release-please"))
+                  and
+                  ([.labels[].name] | any(. == "autorelease: pending"))
+                )
+              ')
+
+              if [ "${IS_VALID}" != "true" ]; then
+                echo ""
+                echo "ERROR: PR failed Release Please verification."
+                echo "NOTHING WILL BE MERGED."
+                exit 1
+              fi
+
+              echo ""
+              echo "Release Please PR verification successful."
+
+              echo "pr_found=true" >> "${GITHUB_OUTPUT}"
+              echo "pr_number=${PR_NUMBER}" >> "${GITHUB_OUTPUT}"
+
+              exit 0
+            fi
+
+            echo "No verified Release Please PR found yet."
+            echo "Waiting 5 seconds..."
+
+            sleep 5
+
+            ATTEMPT=$((ATTEMPT + 1))
+
+          done
+
+          # ==========================================================
+          # IMPORTANT SAFETY CONDITION
+          #
+          # If we cannot positively identify a Release Please PR,
+          # fail the workflow instead of merging another PR.
+          # ==========================================================
+
+          echo ""
+          echo "========================================"
+          echo "ERROR"
+          echo "========================================"
+          echo "Could not find a verified Release Please PR."
+          echo ""
+          echo "NO PR WILL BE MERGED."
+          echo ""
+          echo "Open PRs currently visible:"
+          
+          gh pr list \
             --repo "${GITHUB_REPOSITORY}" \
             --base main \
             --state open \
-            --label "autorelease: pending" \
-            --json number \
-            --jq '.[0].number')
+            --json number,title,headRefName,baseRefName,labels \
+            --jq '.[]'
 
-          if [ -z "${PR_NUMBER}" ] || [ "${PR_NUMBER}" = "null" ]; then
-            echo "No Release Please PR found."
-
-            echo "pr_found=false" >> "${GITHUB_OUTPUT}"
-            echo "pr_number=" >> "${GITHUB_OUTPUT}"
-          else
-            echo "Release Please PR found: #${PR_NUMBER}"
-
-            echo "pr_found=true" >> "${GITHUB_OUTPUT}"
-            echo "pr_number=${PR_NUMBER}" >> "${GITHUB_OUTPUT}"
-          fi
+          exit 1
 
       # ============================================================
-      # STEP 4: Automatically merge Release PR
-      #
-      # --auto means GitHub will automatically merge once required
-      # checks/requirements are satisfied.
-      #
-      # If your repository does not require checks, it should merge
-      # immediately.
+      # STEP 5
+      # Auto merge ONLY the verified Release Please PR.
       # ============================================================
-      - name: Auto Merge Release PR
+      - name: Auto Merge Release Please PR
         if: ${{ steps.find_pr.outputs.pr_found == 'true' }}
         env:
           PR_NUMBER: ${{ steps.find_pr.outputs.pr_number }}
@@ -100,27 +221,69 @@ jobs:
           set -e
 
           echo "========================================"
-          echo "Auto merging Release PR #${PR_NUMBER}"
+          echo "AUTO MERGING RELEASE PLEASE PR"
           echo "========================================"
+          echo "PR Number: ${PR_NUMBER}"
+
+          # --------------------------------------------------------
+          # Final verification immediately before merge.
+          # --------------------------------------------------------
+
+          PR_INFO=$(gh pr view "${PR_NUMBER}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --json number,title,headRefName,baseRefName,state,labels)
+
+          echo "PR information:"
+          echo "${PR_INFO}"
+
+          IS_VALID=$(echo "${PR_INFO}" | jq -r '
+            (
+              .state == "OPEN"
+              and
+              .baseRefName == "main"
+              and
+              (.headRefName | startswith("release-please"))
+              and
+              ([.labels[].name] | any(. == "autorelease: pending"))
+            )
+          ')
+
+          if [ "${IS_VALID}" != "true" ]; then
+            echo ""
+            echo "ERROR: PR is no longer a verified Release Please PR."
+            echo "ABORTING MERGE."
+            exit 1
+          fi
+
+          echo ""
+          echo "PR verification passed."
+          echo "This PR was created by Release Please."
+          echo ""
+          echo "Enabling auto-merge..."
 
           gh pr merge "${PR_NUMBER}" \
             --repo "${GITHUB_REPOSITORY}" \
             --auto \
             --merge
 
-          echo "Auto-merge enabled for PR #${PR_NUMBER}"
+          echo ""
+          echo "Auto-merge request submitted."
 
       # ============================================================
-      # STEP 5: Wait until Release PR is actually merged
+      # STEP 6
+      # Wait until ONLY that verified Release Please PR is merged.
       # ============================================================
-      - name: Wait for Release PR to be merged
+      - name: Wait for Release Please PR to be merged
         if: ${{ steps.find_pr.outputs.pr_found == 'true' }}
         env:
           PR_NUMBER: ${{ steps.find_pr.outputs.pr_number }}
         run: |
           set -e
 
-          echo "Waiting for Release PR #${PR_NUMBER} to be merged..."
+          echo "========================================"
+          echo "WAITING FOR RELEASE PLEASE PR MERGE"
+          echo "========================================"
+          echo "PR Number: ${PR_NUMBER}"
 
           MAX_ATTEMPTS=60
           ATTEMPT=1
@@ -132,41 +295,52 @@ jobs:
               --json state \
               --jq '.state')
 
+            echo ""
             echo "Attempt ${ATTEMPT}/${MAX_ATTEMPTS}"
             echo "PR state: ${PR_STATE}"
 
             if [ "${PR_STATE}" = "MERGED" ]; then
-              echo "Release PR has been successfully merged."
-              break
+              echo ""
+              echo "========================================"
+              echo "Release Please PR MERGED"
+              echo "========================================"
+              exit 0
             fi
 
             if [ "${PR_STATE}" = "CLOSED" ]; then
-              echo "ERROR: Release PR was closed without being merged."
+              echo ""
+              echo "ERROR: Release Please PR was closed without merging."
               exit 1
             fi
 
-            echo "PR is not merged yet. Waiting 5 seconds..."
+            echo "Waiting 5 seconds..."
             sleep 5
 
             ATTEMPT=$((ATTEMPT + 1))
+
           done
 
-          if [ "${PR_STATE}" != "MERGED" ]; then
-            echo "ERROR: Release PR was not merged within the timeout."
-            exit 1
-          fi
-
-          echo "Release PR merge confirmed."
+          echo ""
+          echo "ERROR: Release Please PR was not merged within timeout."
+          exit 1
 
       # ============================================================
-      # STEP 6: Run Release Please AGAIN
+      # STEP 7
+      # Wait for GitHub to synchronize the merge.
+      # ============================================================
+      - name: Wait for merged Release Please PR synchronization
+        if: ${{ steps.find_pr.outputs.pr_found == 'true' }}
+        run: |
+          echo "Release Please PR has been merged."
+          echo "Waiting 15 seconds for GitHub synchronization..."
+          sleep 15
+
+      # ============================================================
+      # STEP 8
+      # Run Release Please AGAIN.
       #
-      # At this point the Release PR has been merged.
-      #
-      # Release Please will now create:
-      #   - version tag
-      #   - GitHub Release
-      #   - release notes
+      # It should now detect that the Release Please PR was merged
+      # and create the actual version tag and GitHub Release.
       # ============================================================
       - name: Run Release Please - Create Version and Release
         id: rp_release
@@ -181,7 +355,8 @@ jobs:
           manifest-file: .release-please-manifest.json
 
       # ============================================================
-      # STEP 7: Debug final Release Please outputs
+      # STEP 9
+      # Debug final release.
       # ============================================================
       - name: Debug Final Release
         if: ${{ steps.find_pr.outputs.pr_found == 'true' }}
@@ -196,8 +371,9 @@ jobs:
           echo "========================================"
 
       # ============================================================
-      # STEP 8: Update APP_VERSION and LAST_RELEASE_DATE
-      # ONLY when a real release was created.
+      # STEP 10
+      # Update APP_VERSION and LAST_RELEASE_DATE ONLY when the
+      # actual GitHub Release has been created.
       # ============================================================
       - name: Update APP_VERSION and LAST_RELEASE_DATE
         if: ${{ steps.rp_release.outputs.release_created == 'true' }}
@@ -215,7 +391,7 @@ jobs:
           RUN_DATE="$(date +%d-%m-%Y)"
 
           echo "========================================"
-          echo "Updating Environment Variables"
+          echo "UPDATING ENVIRONMENT VARIABLES"
           echo "========================================"
           echo "APP_VERSION       = ${TAG_NAME}"
           echo "LAST_RELEASE_DATE = ${RUN_DATE}"
@@ -241,9 +417,13 @@ jobs:
               -f name="APP_VERSION" \
               -f value="${TAG_NAME}"
             then
+
               echo "APP_VERSION updated successfully."
+
             else
-              echo "APP_VERSION does not exist. Creating it..."
+
+              echo "APP_VERSION does not exist."
+              echo "Creating APP_VERSION..."
 
               gh api \
                 --method POST \
@@ -253,6 +433,7 @@ jobs:
                 -f value="${TAG_NAME}"
 
               echo "APP_VERSION created successfully."
+
             fi
 
             # ======================================================
@@ -268,9 +449,13 @@ jobs:
               -f name="LAST_RELEASE_DATE" \
               -f value="${RUN_DATE}"
             then
+
               echo "LAST_RELEASE_DATE updated successfully."
+
             else
-              echo "LAST_RELEASE_DATE does not exist. Creating it..."
+
+              echo "LAST_RELEASE_DATE does not exist."
+              echo "Creating LAST_RELEASE_DATE..."
 
               gh api \
                 --method POST \
@@ -280,11 +465,12 @@ jobs:
                 -f value="${RUN_DATE}"
 
               echo "LAST_RELEASE_DATE created successfully."
+
             fi
 
           done
 
           echo ""
           echo "========================================"
-          echo "Environment variables updated successfully"
+          echo "RELEASE PROCESS COMPLETED SUCCESSFULLY"
           echo "========================================"
