@@ -1,3 +1,5 @@
+name: release-please
+
 on:
   workflow_dispatch:
 
@@ -7,15 +9,21 @@ permissions:
   issues: write
   pull-requests: write
 
-name: release-please
-
 jobs:
   release-please:
     runs-on: ubuntu-latest
+
     env:
       GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
+
     steps:
-      - id: rp
+
+      # ============================================================
+      # STEP 1: Run Release Please
+      # This creates the Release PR if one is required.
+      # ============================================================
+      - name: Run Release Please - Create Release PR
+        id: rp_pr
         uses: googleapis/release-please-action@v4
         with:
           token: ${{ env.GH_TOKEN }}
@@ -25,52 +33,258 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-      - name: Debug outputs
+      # ============================================================
+      # STEP 2: Debug Release Please outputs
+      # ============================================================
+      - name: Debug Release Please outputs
         run: |
-          echo "releases_created=${{ steps.rp.outputs.releases_created }}"
-          echo "paths_released=${{ steps.rp.outputs.paths_released }}"
-          echo "tag_name=${{ steps.rp.outputs.tag_name }}"
-          echo "release_created=${{ steps.rp.outputs.release_created }}"
+          echo "========================================"
+          echo "Release Please outputs"
+          echo "========================================"
+          echo "releases_created = ${{ steps.rp_pr.outputs.releases_created }}"
+          echo "paths_released   = ${{ steps.rp_pr.outputs.paths_released }}"
+          echo "tag_name         = ${{ steps.rp_pr.outputs.tag_name }}"
+          echo "release_created  = ${{ steps.rp_pr.outputs.release_created }}"
+          echo "prs_created      = ${{ steps.rp_pr.outputs.prs_created }}"
+          echo "========================================"
 
-      - name: Update APP_VERSION and LAST_RELEASE_DATE in dev and uat
-        if: ${{ steps.rp.outputs.tag_name != '' }}
+      # ============================================================
+      # STEP 3: Find the Release Please PR
+      #
+      # Release Please marks its release PR with:
+      # autorelease: pending
+      #
+      # We search for an OPEN PR with this label.
+      # ============================================================
+      - name: Find Release Please PR
+        id: find_pr
+        run: |
+          set -e
+
+          echo "Searching for Release Please PR..."
+
+          PR_NUMBER=$(gh pr list \
+            --repo "${GITHUB_REPOSITORY}" \
+            --base main \
+            --state open \
+            --label "autorelease: pending" \
+            --json number \
+            --jq '.[0].number')
+
+          if [ -z "${PR_NUMBER}" ] || [ "${PR_NUMBER}" = "null" ]; then
+            echo "No Release Please PR found."
+
+            echo "pr_found=false" >> "${GITHUB_OUTPUT}"
+            echo "pr_number=" >> "${GITHUB_OUTPUT}"
+          else
+            echo "Release Please PR found: #${PR_NUMBER}"
+
+            echo "pr_found=true" >> "${GITHUB_OUTPUT}"
+            echo "pr_number=${PR_NUMBER}" >> "${GITHUB_OUTPUT}"
+          fi
+
+      # ============================================================
+      # STEP 4: Automatically merge Release PR
+      #
+      # --auto means GitHub will automatically merge once required
+      # checks/requirements are satisfied.
+      #
+      # If your repository does not require checks, it should merge
+      # immediately.
+      # ============================================================
+      - name: Auto Merge Release PR
+        if: ${{ steps.find_pr.outputs.pr_found == 'true' }}
+        env:
+          PR_NUMBER: ${{ steps.find_pr.outputs.pr_number }}
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "Auto merging Release PR #${PR_NUMBER}"
+          echo "========================================"
+
+          gh pr merge "${PR_NUMBER}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --auto \
+            --merge
+
+          echo "Auto-merge enabled for PR #${PR_NUMBER}"
+
+      # ============================================================
+      # STEP 5: Wait until Release PR is actually merged
+      # ============================================================
+      - name: Wait for Release PR to be merged
+        if: ${{ steps.find_pr.outputs.pr_found == 'true' }}
+        env:
+          PR_NUMBER: ${{ steps.find_pr.outputs.pr_number }}
+        run: |
+          set -e
+
+          echo "Waiting for Release PR #${PR_NUMBER} to be merged..."
+
+          MAX_ATTEMPTS=60
+          ATTEMPT=1
+
+          while [ "${ATTEMPT}" -le "${MAX_ATTEMPTS}" ]; do
+
+            PR_STATE=$(gh pr view "${PR_NUMBER}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --json state \
+              --jq '.state')
+
+            echo "Attempt ${ATTEMPT}/${MAX_ATTEMPTS}"
+            echo "PR state: ${PR_STATE}"
+
+            if [ "${PR_STATE}" = "MERGED" ]; then
+              echo "Release PR has been successfully merged."
+              break
+            fi
+
+            if [ "${PR_STATE}" = "CLOSED" ]; then
+              echo "ERROR: Release PR was closed without being merged."
+              exit 1
+            fi
+
+            echo "PR is not merged yet. Waiting 5 seconds..."
+            sleep 5
+
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+
+          if [ "${PR_STATE}" != "MERGED" ]; then
+            echo "ERROR: Release PR was not merged within the timeout."
+            exit 1
+          fi
+
+          echo "Release PR merge confirmed."
+
+      # ============================================================
+      # STEP 6: Run Release Please AGAIN
+      #
+      # At this point the Release PR has been merged.
+      #
+      # Release Please will now create:
+      #   - version tag
+      #   - GitHub Release
+      #   - release notes
+      # ============================================================
+      - name: Run Release Please - Create Version and Release
+        id: rp_release
+        if: ${{ steps.find_pr.outputs.pr_found == 'true' }}
+        uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ env.GH_TOKEN }}
+          target-branch: main
+          skip-github-pull-request: false
+          skip-github-release: false
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      # ============================================================
+      # STEP 7: Debug final Release Please outputs
+      # ============================================================
+      - name: Debug Final Release
+        if: ${{ steps.find_pr.outputs.pr_found == 'true' }}
+        run: |
+          echo "========================================"
+          echo "FINAL RELEASE"
+          echo "========================================"
+          echo "releases_created = ${{ steps.rp_release.outputs.releases_created }}"
+          echo "paths_released   = ${{ steps.rp_release.outputs.paths_released }}"
+          echo "tag_name         = ${{ steps.rp_release.outputs.tag_name }}"
+          echo "release_created  = ${{ steps.rp_release.outputs.release_created }}"
+          echo "========================================"
+
+      # ============================================================
+      # STEP 8: Update APP_VERSION and LAST_RELEASE_DATE
+      # ONLY when a real release was created.
+      # ============================================================
+      - name: Update APP_VERSION and LAST_RELEASE_DATE
+        if: ${{ steps.rp_release.outputs.release_created == 'true' }}
         env:
           REPOSITORY: ${{ github.repository }}
-          TAG_NAME: ${{ steps.rp.outputs.tag_name }}
+          TAG_NAME: ${{ steps.rp_release.outputs.tag_name }}
         run: |
-          if [ -z "${GH_TOKEN}" ]; then
-            echo "Missing secret REPO_ADMIN_TOKEN. Add a PAT with permission to manage repository environment variables."
+          set -e
+
+          if [ -z "${TAG_NAME}" ]; then
+            echo "ERROR: TAG_NAME is empty."
             exit 1
           fi
 
           RUN_DATE="$(date +%d-%m-%Y)"
-          echo "Updating APP_VERSION and LAST_RELEASE_DATE in dev and uat"
-          for env_name in dev uat; do
-            if ! gh api \
+
+          echo "========================================"
+          echo "Updating Environment Variables"
+          echo "========================================"
+          echo "APP_VERSION       = ${TAG_NAME}"
+          echo "LAST_RELEASE_DATE = ${RUN_DATE}"
+          echo "========================================"
+
+          for ENV_NAME in dev uat; do
+
+            echo ""
+            echo "----------------------------------------"
+            echo "Environment: ${ENV_NAME}"
+            echo "----------------------------------------"
+
+            # ======================================================
+            # APP_VERSION
+            # ======================================================
+
+            echo "Updating APP_VERSION..."
+
+            if gh api \
               --method PATCH \
               -H "Accept: application/vnd.github+json" \
-              "/repos/${REPOSITORY}/environments/${env_name}/variables/APP_VERSION" \
-              -f name='APP_VERSION' \
-              -f value="${TAG_NAME}"; then
+              "/repos/${REPOSITORY}/environments/${ENV_NAME}/variables/APP_VERSION" \
+              -f name="APP_VERSION" \
+              -f value="${TAG_NAME}"
+            then
+              echo "APP_VERSION updated successfully."
+            else
+              echo "APP_VERSION does not exist. Creating it..."
+
               gh api \
                 --method POST \
                 -H "Accept: application/vnd.github+json" \
-                "/repos/${REPOSITORY}/environments/${env_name}/variables" \
-                -f name='APP_VERSION' \
+                "/repos/${REPOSITORY}/environments/${ENV_NAME}/variables" \
+                -f name="APP_VERSION" \
                 -f value="${TAG_NAME}"
+
+              echo "APP_VERSION created successfully."
             fi
 
-            if ! gh api \
+            # ======================================================
+            # LAST_RELEASE_DATE
+            # ======================================================
+
+            echo "Updating LAST_RELEASE_DATE..."
+
+            if gh api \
               --method PATCH \
               -H "Accept: application/vnd.github+json" \
-              "/repos/${REPOSITORY}/environments/${env_name}/variables/LAST_RELEASE_DATE" \
-              -f name='LAST_RELEASE_DATE' \
-              -f value="${RUN_DATE}"; then
+              "/repos/${REPOSITORY}/environments/${ENV_NAME}/variables/LAST_RELEASE_DATE" \
+              -f name="LAST_RELEASE_DATE" \
+              -f value="${RUN_DATE}"
+            then
+              echo "LAST_RELEASE_DATE updated successfully."
+            else
+              echo "LAST_RELEASE_DATE does not exist. Creating it..."
+
               gh api \
                 --method POST \
                 -H "Accept: application/vnd.github+json" \
-                "/repos/${REPOSITORY}/environments/${env_name}/variables" \
-                -f name='LAST_RELEASE_DATE' \
+                "/repos/${REPOSITORY}/environments/${ENV_NAME}/variables" \
+                -f name="LAST_RELEASE_DATE" \
                 -f value="${RUN_DATE}"
+
+              echo "LAST_RELEASE_DATE created successfully."
             fi
+
           done
+
+          echo ""
+          echo "========================================"
+          echo "Environment variables updated successfully"
+          echo "========================================"
