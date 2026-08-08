@@ -1,5 +1,17 @@
 # Changelog
 
+## [4.4.0](https://github.com/vaheed466/poc_version/compare/v4.3.0...v4.4.0) (2026-08-08)
+
+
+### Features
+
+* Add test_single_release_feat_04 to requirements.txt ([efd363c](https://github.com/vaheed466/poc_version/commit/efd363c5981b16e942b3f8958f54ac98e2551b6e))
+
+
+### Bug Fixes
+
+* Add test_single_release_fix_04 to requirements.txt ([dfa0a1c](https://github.com/vaheed466/poc_version/commit/dfa0a1c2c713cfebdc07cfcfb257b51487be5572))
+
 ## [4.3.0](https://github.com/vaheed466/poc_version/compare/v4.2.0...v4.3.0) (2026-08-08)
 
 
