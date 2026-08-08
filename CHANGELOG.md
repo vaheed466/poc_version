@@ -1,5 +1,17 @@
 # Changelog
 
+## [4.2.0](https://github.com/vaheed466/poc_version/compare/v4.1.1...v4.2.0) (2026-08-08)
+
+
+### Features
+
+* Add test_single_release_02 to requirements.txt ([6d0187c](https://github.com/vaheed466/poc_version/commit/6d0187c1ecca91446bfec7d0edbe02fcccc2898a))
+
+
+### Continuous Integration
+
+* enhance release workflow with detailed steps and automatic merging ([fdfbc9c](https://github.com/vaheed466/poc_version/commit/fdfbc9cb27f7580fd8f6a760da7e2faaf39957c4))
+
 ## [4.1.1](https://github.com/vaheed466/poc_version/compare/v4.1.0...v4.1.1) (2026-08-08)
 
 
