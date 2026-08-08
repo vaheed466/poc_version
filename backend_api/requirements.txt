@@ -26,4 +26,6 @@ test_manual_relase_ci_01
 test_manual_relase-start-again-04
 test_manual_relase_ci_02
 test_single_release_02
+test_single_release_03
+
 
