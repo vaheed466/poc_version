@@ -31,6 +31,7 @@ test_single_release_feat_04
 test_single_release_fix_04
 test_single_release_fix_05
 test_single_release_fix_06
+test_single_release_fix_07
 
 
 
